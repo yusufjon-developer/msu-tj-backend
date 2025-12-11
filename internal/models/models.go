@@ -8,27 +8,21 @@ type Lesson struct {
 }
 
 type DaySchedule struct {
-	Day     string            `json:"day"`
-	Date    string            `json:"date,omitempty"`
-	Lessons map[string]Lesson `json:"lessons"`
+	Day     string    `json:"day"`
+	Date    string    `json:"date,omitempty"`
+	Lessons []*Lesson `json:"lessons"`
 }
 
 type GroupSchedule struct {
-	ID        string                 `json:"id"`
-	Title     string                 `json:"title"`
-	UpdatedAt string                 `json:"updated_at"`
-	Days      map[string]DaySchedule `json:"days"`
+	ID        string         `json:"id"`
+	Title     string         `json:"title"`
+	UpdatedAt string         `json:"updated_at"`
+	Days      []*DaySchedule `json:"days"`
 }
 
 type FreeRoomsData struct {
 	Schedule   map[string]map[string][]string `json:"schedule"`
 	LastUpdate string                         `json:"last_update"`
-}
-
-type FacultyMeta struct {
-	Code       string                   `json:"code"`
-	Title      string                   `json:"title"`
-	Directions map[string]DirectionMeta `json:"directions"`
 }
 
 type DirectionMeta struct {
