@@ -15,23 +15,27 @@ var AllRooms = []string{
 	"601", "602", "603",
 	"701", "702", "703", "704",
 	"801", "802",
-	"лабГЕО", "лабФИЗ", "лабХИМ", "стд",
+	"лабГЕОЛ", "лабФИЗ", "лабХИМ", "стд",
 }
 
 func CalculateFreeRooms(groups map[string]models.GroupSchedule) models.FreeRoomsData {
 	scheduleMap := make(map[string]map[string][]string)
 
-	for _, day := range daysToCheck {
-		scheduleMap[day] = make(map[string][]string)
+	for i, dayKey := range daysToCheck {
+		scheduleMap[dayKey] = make(map[string][]string)
 
-		for _, pair := range pairsToCheck {
+		for j, pairKey := range pairsToCheck {
 			occupiedSet := make(map[string]bool)
 
 			for _, group := range groups {
-				if daySched, ok := group.Days[day]; ok {
-					if lesson, ok := daySched.Lessons[pair]; ok {
-						for _, room := range lesson.Rooms {
-							occupiedSet[room] = true
+				if i < len(group.Days) && group.Days[i] != nil {
+					daySched := group.Days[i]
+					if j < len(daySched.Lessons) {
+						lesson := daySched.Lessons[j]
+						if lesson != nil {
+							for _, room := range lesson.Rooms {
+								occupiedSet[room] = true
+							}
 						}
 					}
 				}
@@ -44,7 +48,7 @@ func CalculateFreeRooms(groups map[string]models.GroupSchedule) models.FreeRooms
 				}
 			}
 
-			scheduleMap[day][pair] = free
+			scheduleMap[dayKey][pairKey] = free
 		}
 	}
 

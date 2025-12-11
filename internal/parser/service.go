@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"msu-tj-backend/internal/models"
@@ -34,6 +35,14 @@ var (
 
 	daysCodes = []string{"1", "2", "3", "4", "5", "6", "7"}
 )
+
+func getDayNameByIndex(i int) string {
+	days := []string{"Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"}
+	if i >= 0 && i < len(days) {
+		return days[i]
+	}
+	return ""
+}
 
 func ParseXLS(fileBytes []byte, globalData map[string]models.GroupSchedule) error {
 	reader := bytes.NewReader(fileBytes)
@@ -74,7 +83,6 @@ func ParseXLS(fileBytes []byte, globalData map[string]models.GroupSchedule) erro
 						break
 					}
 				}
-
 				matches := courseRegex.FindStringSubmatch(fullRowText)
 
 				if foundCode != "" && len(matches) > 1 {
@@ -83,10 +91,18 @@ func ParseXLS(fileBytes []byte, globalData map[string]models.GroupSchedule) erro
 					currentGroupTitle = formatTitle(foundCode, courseNum)
 
 					if _, exists := globalData[currentGroupID]; !exists {
+						daysSlice := make([]*models.DaySchedule, 7)
+						for d := 0; d < 7; d++ {
+							daysSlice[d] = &models.DaySchedule{
+								Day:     getDayNameByIndex(d),
+								Lessons: make([]*models.Lesson, 5),
+							}
+						}
+
 						globalData[currentGroupID] = models.GroupSchedule{
 							ID:    currentGroupID,
 							Title: currentGroupTitle,
-							Days:  make(map[string]models.DaySchedule),
+							Days:  daysSlice,
 						}
 						log.Printf("Group parsed: %s", currentGroupTitle)
 					}
@@ -97,34 +113,32 @@ func ParseXLS(fileBytes []byte, globalData map[string]models.GroupSchedule) erro
 			if currentGroupID != "" {
 				firstCell := strings.TrimSpace(row.Col(0))
 				firstCell = strings.Trim(firstCell, ". ")
-				pairNum, isPair := romanToArabic[firstCell]
+				pairNumStr, isPair := romanToArabic[firstCell]
 
 				if isPair {
-					for dIndex, dayCode := range daysCodes {
-						subjCol := dIndex*2 + 1
-						roomCol := dIndex*2 + 2
+					pairInt, _ := strconv.Atoi(pairNumStr)
+
+					for dayIdx := 0; dayIdx < 7; dayIdx++ {
+						subjCol := dayIdx*2 + 1
+						roomCol := dayIdx*2 + 2
+
 						if roomCol <= row.LastCol() {
 							subjText := strings.TrimSpace(row.Col(subjCol))
 							roomText := strings.TrimSpace(row.Col(roomCol))
 
 							if subjText != "" {
 								lesson := parseLessonString(subjText, roomText)
+
 								group := globalData[currentGroupID]
-								if group.Days == nil {
-									group.Days = make(map[string]models.DaySchedule)
-								}
-								daySched, ok := group.Days[dayCode]
-								if !ok {
-									daySched = models.DaySchedule{
-										Day:     getDayName(dayCode),
-										Lessons: make(map[string]models.Lesson),
+
+								if dayIdx < len(group.Days) {
+									lessonIdx := pairInt - 1
+
+									if lessonIdx >= 0 && lessonIdx < 5 {
+										group.Days[dayIdx].Lessons[lessonIdx] = &lesson
 									}
 								}
-								if daySched.Lessons == nil {
-									daySched.Lessons = make(map[string]models.Lesson)
-								}
-								daySched.Lessons[pairNum] = lesson
-								group.Days[dayCode] = daySched
+
 								globalData[currentGroupID] = group
 							}
 						}
