@@ -20,6 +20,12 @@ type GroupSchedule struct {
 	Days      []*DaySchedule `json:"days"`
 }
 
+type TeacherSchedule struct {
+	Name      string         `json:"name"`
+	UpdatedAt string         `json:"updated_at"`
+	Days      []*DaySchedule `json:"days"`
+}
+
 type FreeRoomsData struct {
 	Schedule   map[string]map[string][]string `json:"schedule"`
 	LastUpdate string                         `json:"last_update"`
