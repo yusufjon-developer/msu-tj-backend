@@ -39,6 +39,7 @@ func NewFirebase(credFile string, dbURL string) (*Service, error) {
 func (s *Service) SaveFullUpdate(
 	groups map[string]models.GroupSchedule,
 	freeRooms models.FreeRoomsData,
+	teachers map[string]models.TeacherSchedule,
 ) error {
 
 	if err := s.client.NewRef("schedules").Set(s.ctx, groups); err != nil {
@@ -49,9 +50,13 @@ func (s *Service) SaveFullUpdate(
 		return fmt.Errorf("failed to save free rooms: %v", err)
 	}
 
+	if err := s.client.NewRef("teachers").Set(s.ctx, teachers); err != nil {
+		return fmt.Errorf("failed to save teachers: %v", err)
+	}
+
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	s.client.NewRef("last_global_update").Set(s.ctx, timestamp)
 
-	log.Println("Data successfully sent to Firebase")
+	log.Println("Data (Groups, FreeRooms, Teachers) successfully sent to Firebase")
 	return nil
 }

@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	pollingInterval = 30 * time.Second
-	firebaseURL     = "https://msu-tj-backend-default-rtdb.europe-west1.firebasedatabase.app/"
+	firebaseURL = "https://msu-tj-backend-default-rtdb.europe-west1.firebasedatabase.app/"
 )
 
 var scheduleURLs = []string{
@@ -26,6 +25,11 @@ var scheduleURLs = []string{
 
 func main() {
 	log.Println("=== MSU TJ Backend Starting (Smart Polling Mode) ===")
+	loc, err := time.LoadLocation("Asia/Dushanbe")
+	if err != nil {
+		log.Printf("Warning: Could not load Asia/Dushanbe location, using Local: %v", err)
+		loc = time.Local
+	}
 
 	store, err := storage.NewFirebase("serviceAccountKey.json", firebaseURL)
 	if err != nil {
@@ -35,10 +39,10 @@ func main() {
 
 	go startHealthServer()
 
-	runWorkerLoop(store)
+	runWorkerLoop(store, loc)
 }
 
-func runWorkerLoop(store *storage.Service) {
+func runWorkerLoop(store *storage.Service, loc *time.Location) {
 	lastModifiedMap := make(map[string]string)
 
 	for {
@@ -72,19 +76,36 @@ func runWorkerLoop(store *storage.Service) {
 			if successCount > 0 && len(allGroupsData) > 0 {
 				freeRoomsData := utils.CalculateFreeRooms(allGroupsData)
 
-				err := store.SaveFullUpdate(allGroupsData, freeRoomsData)
+				teachersData := utils.ExtractTeachers(allGroupsData)
+				log.Printf("Extracted %d teachers schedules", len(teachersData))
+
+				err := store.SaveFullUpdate(allGroupsData, freeRoomsData, teachersData)
 				if err != nil {
 					log.Printf("Error saving to Firebase: %v", err)
 				} else {
-					log.Printf("Success. Update finished in %v. Total groups: %d", time.Since(start), len(allGroupsData))
+					log.Printf("Success. Update finished in %v. Groups: %d, Teachers: %d",
+						time.Since(start), len(allGroupsData), len(teachersData))
 				}
 			} else {
 				log.Println("No valid data received, skipping database update.")
 			}
 		}
 
-		time.Sleep(pollingInterval)
+		sleepDuration := getSleepDuration(loc)
+		log.Printf("Sleeping for %v...", sleepDuration)
+		time.Sleep(sleepDuration)
 	}
+}
+
+func getSleepDuration(loc *time.Location) time.Duration {
+	now := time.Now().In(loc)
+	hour := now.Hour()
+
+	if hour >= 6 && hour < 19 {
+		return 15 * time.Second
+	}
+
+	return 10 * time.Minute
 }
 
 func checkFileHeader(url string, oldLastModified string) (string, bool) {
@@ -110,23 +131,21 @@ func checkFileHeader(url string, oldLastModified string) (string, bool) {
 
 	newLastModified := resp.Header.Get("Last-Modified")
 
-	if oldLastModified == "" {
+	if oldLastModified == "" && newLastModified != "" {
 		log.Printf("[HEAD] %s | Time: %v | Initial fetch -> Update required", url, duration)
 		return newLastModified, true
 	}
 
-	if newLastModified == oldLastModified {
-		log.Printf("[HEAD] %s | Time: %v | Date: %s | No changes", url, duration, newLastModified)
-		return oldLastModified, false
+	if newLastModified != oldLastModified {
+		log.Printf("[HEAD] %s | Time: %v | Update detected: %s -> %s", url, duration, oldLastModified, newLastModified)
+		return newLastModified, true
 	}
 
-	log.Printf("[HEAD] %s | Time: %v | Old: %s -> New: %s | Update detected", url, duration, oldLastModified, newLastModified)
-	return newLastModified, true
+	return oldLastModified, false
 }
 
 func processFile(url string, data map[string]models.GroupSchedule) error {
 	client := http.Client{Timeout: 60 * time.Second}
-
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
