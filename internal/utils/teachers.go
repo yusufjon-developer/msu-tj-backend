@@ -39,13 +39,15 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 					continue
 				}
 
-				for _, teacherName := range lesson.Teacher {
-					teacherName = strings.TrimSpace(teacherName)
-					if teacherName == "" {
+				for _, rawTeacherName := range lesson.Teacher {
+					rawTeacherName = strings.TrimSpace(rawTeacherName)
+					if rawTeacherName == "" {
 						continue
 					}
 
-					tSchedule := getOrCreateTeacher(teacherName)
+					safeTeacherName := sanitizeName(rawTeacherName)
+
+					tSchedule := getOrCreateTeacher(safeTeacherName)
 
 					teacherLesson := &models.Lesson{
 						Subject: fmt.Sprintf("%s (%s)", lesson.Subject, group.Title),
@@ -66,6 +68,19 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 	}
 
 	return result
+}
+
+func sanitizeName(name string) string {
+	name = strings.ReplaceAll(name, ".", "_")
+
+	name = strings.ReplaceAll(name, "/", "-")
+
+	name = strings.ReplaceAll(name, "#", "")
+	name = strings.ReplaceAll(name, "$", "")
+	name = strings.ReplaceAll(name, "[", "")
+	name = strings.ReplaceAll(name, "]", "")
+
+	return name
 }
 
 func getDayNameByIndex(i int) string {
