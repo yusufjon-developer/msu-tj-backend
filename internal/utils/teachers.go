@@ -50,7 +50,7 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 					tSchedule := getOrCreateTeacher(safeTeacherName)
 
 					teacherLesson := &models.Lesson{
-						Subject: fmt.Sprintf("%s (%s)", lesson.Subject, group.Title),
+						Subject: fmt.Sprintf("%s", lesson.Subject),
 						Type:    lesson.Type,
 						Rooms:   lesson.Rooms,
 						Teacher: []string{group.Title},
