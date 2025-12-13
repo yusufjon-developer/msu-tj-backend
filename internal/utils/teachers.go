@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"fmt"
 	"msu-tj-backend/internal/models"
 	"strings"
 	"time"
@@ -46,6 +45,10 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 					}
 
 					safeTeacherName := sanitizeName(rawTeacherName)
+					if safeTeacherName == "" {
+						continue
+					}
+
 					tSchedule := getOrCreateTeacher(safeTeacherName)
 
 					existingLesson := tSchedule.Days[dayIdx].Lessons[lessonIdx]
@@ -76,24 +79,50 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 	}
 
 	result := make(map[string]models.TeacherSchedule)
+	forbiddenChars := ".$#[]/"
+
 	for name, schedule := range teachersMap {
-		result[name] = *schedule
+		isValid := true
+
+		if strings.ContainsAny(name, forbiddenChars) {
+			isValid = false
+		}
+
+		if name == "" {
+			isValid = false
+		}
+
+		for _, char := range name {
+			if char < 32 {
+				isValid = false
+				break
+			}
+		}
+
+		if isValid {
+			result[name] = *schedule
+		}
 	}
 
 	return result
 }
 
 func sanitizeName(name string) string {
+	name = strings.ReplaceAll(name, "\x00", "")
+
+	name = strings.TrimSpace(name)
 	name = strings.ReplaceAll(name, ".", "_")
-
 	name = strings.ReplaceAll(name, "/", "-")
-
 	name = strings.ReplaceAll(name, "#", "")
 	name = strings.ReplaceAll(name, "$", "")
-	name = strings.ReplaceAll(name, "[", "")
-	name = strings.ReplaceAll(name, "]", "")
+	name = strings.ReplaceAll(name, "[", "(")
+	name = strings.ReplaceAll(name, "]", ")")
 
-	return name
+	name = strings.ReplaceAll(name, "\n", "")
+	name = strings.ReplaceAll(name, "\r", "")
+	name = strings.ReplaceAll(name, "\t", "")
+
+	return strings.TrimSpace(name)
 }
 
 func getDayNameByIndex(i int) string {
