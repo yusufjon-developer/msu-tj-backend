@@ -44,6 +44,10 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 						continue
 					}
 
+					if strings.Contains(strings.ToLower(rawTeacherName), "английский") {
+						continue
+					}
+
 					safeTeacherName := sanitizeName(rawTeacherName)
 					if safeTeacherName == "" {
 						continue
