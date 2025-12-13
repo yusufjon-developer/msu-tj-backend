@@ -46,17 +46,30 @@ func ExtractTeachers(groups map[string]models.GroupSchedule) map[string]models.T
 					}
 
 					safeTeacherName := sanitizeName(rawTeacherName)
-
 					tSchedule := getOrCreateTeacher(safeTeacherName)
 
-					teacherLesson := &models.Lesson{
-						Subject: fmt.Sprintf("%s", lesson.Subject),
-						Type:    lesson.Type,
-						Rooms:   lesson.Rooms,
-						Teacher: []string{group.Title},
-					}
+					existingLesson := tSchedule.Days[dayIdx].Lessons[lessonIdx]
 
-					tSchedule.Days[dayIdx].Lessons[lessonIdx] = teacherLesson
+					if existingLesson != nil {
+						alreadyAdded := false
+						for _, g := range existingLesson.Teacher {
+							if g == group.Title {
+								alreadyAdded = true
+								break
+							}
+						}
+						if !alreadyAdded {
+							existingLesson.Teacher = append(existingLesson.Teacher, group.Title)
+						}
+					} else {
+						teacherLesson := &models.Lesson{
+							Subject: lesson.Subject,
+							Type:    lesson.Type,
+							Rooms:   lesson.Rooms,
+							Teacher: []string{group.Title},
+						}
+						tSchedule.Days[dayIdx].Lessons[lessonIdx] = teacherLesson
+					}
 				}
 			}
 		}
