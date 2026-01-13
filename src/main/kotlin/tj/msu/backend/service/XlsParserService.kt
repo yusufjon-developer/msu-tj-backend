@@ -1,8 +1,6 @@
 package tj.msu.backend.service
 
-import org.apache.poi.ss.usermodel.Cell
-import org.apache.poi.ss.usermodel.CellType
-import org.apache.poi.ss.usermodel.WorkbookFactory
+import org.apache.poi.ss.usermodel.*
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import tj.msu.backend.model.DaySchedule
@@ -15,11 +13,13 @@ import java.util.regex.Pattern
 class XlsParserService {
     private val logger = LoggerFactory.getLogger(XlsParserService::class.java)
 
-    // Regexes matching Go implementation
+
     private val roomRegex = Pattern.compile("\\b\\d{3}\\b")
     private val courseRegex = Pattern.compile("(\\d+)\\s*КУРС", Pattern.CASE_INSENSITIVE)
     private val typeRegex = Pattern.compile("\\[(.*?)\\]")
     private val teacherRegex = Pattern.compile("\\((.*?)\\)")
+    private val dateRegex = Pattern.compile("(\\d{1,2})\\s+([а-яА-Я]+)\\s+(\\d{4})")
+    private val weekRegex = Pattern.compile("(\\d{1,2})\\s*[-]?\\s*я\\s+неделя", Pattern.CASE_INSENSITIVE)
 
     private val directions = mapOf(
         "ПРИКЛАДНАЯ" to "pmi",
@@ -39,100 +39,181 @@ class XlsParserService {
         "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"
     )
 
-    fun parseXls(fileBytes: ByteArray, globalData: MutableMap<String, GroupSchedule>) {
+    private val monthMap = mapOf(
+        "января" to "01", "февраля" to "02", "марта" to "03", "апреля" to "04",
+        "мая" to "05", "июня" to "06", "июля" to "07", "августа" to "08",
+        "сентября" to "09", "октября" to "10", "ноября" to "11", "декабря" to "12"
+    )
+
+    data class ParsingResult(
+        val groups: MutableMap<String, GroupSchedule> = HashMap(),
+        var weekNumber: Int? = null,
+        val dates: MutableList<String> = ArrayList()
+    )
+
+    fun parseXls(fileBytes: ByteArray, result: ParsingResult) {
         try {
             ByteArrayInputStream(fileBytes).use { fis ->
-                // WorkbookFactory handles both HSSF (.xls) and XSSF (.xlsx)
                 val workbook = WorkbookFactory.create(fis)
-
                 for (sheetIdx in 0 until workbook.numberOfSheets) {
                     val sheet = workbook.getSheetAt(sheetIdx)
-                    var currentGroupId: String? = null
-                    
-                    // Iterate rows
-                    for (row in sheet) {
-                        val fullRowTextBuilder = StringBuilder()
-                        // Naively concatenate all cells to check for header
-                        for (cell in row) {
-                            fullRowTextBuilder.append(" ").append(getCellText(cell))
-                        }
-                        val fullRowText = fullRowTextBuilder.toString().trim().uppercase()
-
-                        // Header detection logic from Go: Contains "КУРС" and NOT "ПРАКТИЧЕСКИЙ"
-                        val isHeaderCandidate = fullRowText.contains("КУРС") && !fullRowText.contains("ПРАКТИЧЕСКИЙ")
-
-                        if (isHeaderCandidate) {
-                            var foundCode = ""
-                            for ((key, code) in directions) {
-                                if (fullRowText.contains(key)) {
-                                    foundCode = code
-                                    break
-                                }
-                            }
-
-                            val courseMatcher = courseRegex.matcher(fullRowText)
-                            if (foundCode.isNotEmpty() && courseMatcher.find()) {
-                                val courseNum = courseMatcher.group(1)
-                                currentGroupId = "${foundCode}_${courseNum}"
-                                val title = formatTitle(foundCode, courseNum)
-
-                                if (!globalData.containsKey(currentGroupId)) {
-                                    // Initialize structure for new group
-                                    val days = ArrayList<DaySchedule>()
-                                    for (d in 0 until 7) {
-                                        days.add(DaySchedule(day = daysNames[d], lessons = MutableList(5) { null }))
-                                    }
-                                    globalData[currentGroupId] = GroupSchedule(
-                                        id = currentGroupId,
-                                        title = title,
-                                        days = days
-                                    )
-                                    logger.debug("Group parsed: {}", title)
-                                }
-                                continue
-                            }
-                        }
-
-                        // Parsing schedule rows
-                        if (currentGroupId != null) {
-                            val firstCell = getCellText(row.getCell(0, org.apache.poi.ss.usermodel.Row.MissingCellPolicy.CREATE_NULL_AS_BLANK))
-                                .trim().trim('.', ' ')
-                            
-                            val pairNum = romanToArabic[firstCell]
-
-                            if (pairNum != null) {
-                                // It is a pair row
-                                val pairIndex = pairNum - 1 // 0-based index
-
-                                for (dayIdx in 0 until 7) {
-                                    val subjCol = dayIdx * 2 + 1
-                                    val roomCol = dayIdx * 2 + 2
-
-                                    if (roomCol < row.lastCellNum) {
-                                        val subjText = getCellText(row.getCell(subjCol)).trim()
-                                        val roomText = getCellText(row.getCell(roomCol)).trim()
-
-                                        if (subjText.isNotEmpty()) {
-                                            val lesson = parseLessonString(subjText, roomText)
-                                            val group = globalData[currentGroupId]!!
-                                            
-                                            if (dayIdx < group.days.size) {
-                                                if (pairIndex in 0..4) {
-                                                    group.days[dayIdx].lessons[pairIndex] = lesson
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    parseSheet(sheet, result)
                 }
             }
         } catch (e: Exception) {
             logger.error("Error parsing XLS: {}", e.message)
-            throw RuntimeException(e)
         }
+    }
+
+    private fun parseSheet(sheet: Sheet, result: ParsingResult) {
+        val globalData = result.groups
+        var currentGroup: GroupSchedule? = null
+        var colToDayIndex = HashMap<Int, Int>() 
+        
+
+        if (result.weekNumber == null) {
+            for (i in 0..5) {
+                val row = sheet.getRow(i) ?: continue
+                val sb = StringBuilder()
+                for (cell in row) sb.append(getCellText(cell)).append(" ")
+                val text = sb.toString()
+                val m = weekRegex.matcher(text)
+                if (m.find()) {
+                    try { 
+                        result.weekNumber = m.group(1).toInt() 
+                        break 
+                    } catch (e: Exception) {}
+                }
+            }
+        }
+        
+        var r = 0
+        while (r <= sheet.lastRowNum) {
+            val row = sheet.getRow(r)
+            if (row == null) { r++; continue }
+
+            val fullRowTextBuilder = StringBuilder()
+            for (c in 0 until row.lastCellNum) {
+                fullRowTextBuilder.append(" ").append(getCellText(row.getCell(c)))
+            }
+            val fullRowText = fullRowTextBuilder.toString().trim().uppercase()
+
+            val isHeaderCandidate = fullRowText.contains("КУРС") && !fullRowText.contains("ПРАКТИЧЕСКИЙ")
+
+            if (isHeaderCandidate) {
+                var foundCode = ""
+                for ((key, code) in directions) {
+                    if (fullRowText.contains(key)) {
+                        foundCode = code
+                        break
+                    }
+                }
+
+                val courseMatcher = courseRegex.matcher(fullRowText)
+                if (foundCode.isNotEmpty() && courseMatcher.find()) {
+                    val courseNum = courseMatcher.group(1)
+                    val groupId = "${foundCode}_${courseNum}"
+                    val title = formatTitle(foundCode, courseNum)
+
+                    if (!globalData.containsKey(groupId)) {
+                        val days = ArrayList<DaySchedule>()
+                        for (d in 0 until 7) {
+                            days.add(DaySchedule(day = daysNames[d], lessons = MutableList(5) { null }))
+                        }
+                        val newGroup = GroupSchedule(id = groupId, title = title, days = days)
+                        globalData[groupId] = newGroup
+                        currentGroup = newGroup
+                    } else {
+                         currentGroup = globalData[groupId]
+                    }
+
+                    colToDayIndex.clear()
+                    val dayRowIdx = r + 1
+                    val dayRow = sheet.getRow(dayRowIdx)
+                    if (dayRow != null) {
+                       for (c in 0 until dayRow.lastCellNum) {
+                           val text = getCellText(dayRow.getCell(c)).lowercase()
+                           val dIdx = getDayIndex(text)
+                           if (dIdx != -1) {
+                               colToDayIndex[c] = dIdx
+                               colToDayIndex[c+1] = dIdx
+                           }
+                       }
+                    }
+
+                    val dateRowIdx = r + 2
+                    val dateRow = sheet.getRow(dateRowIdx)
+                    if (dateRow != null && currentGroup != null) {
+                        for (c in 0 until dateRow.lastCellNum) {
+                             val text = getCellText(dateRow.getCell(c))
+                             val parsedDate = parseRussianDate(text)
+                             if (parsedDate != null) {
+                                 result.dates.add(parsedDate)
+                                 
+                                 var dIdx = colToDayIndex[c]
+                                 if (dIdx == null && c > 0) dIdx = colToDayIndex[c-1]
+                                 
+                                 if (dIdx != null && dIdx < currentGroup.days.size) {
+                                     currentGroup.days[dIdx].date = parsedDate
+                                 }
+                             }
+                        }
+                    }
+                    r += 2 
+                }
+            } else if (currentGroup != null) {
+                val firstCell = getCellText(row.getCell(0)).trim().trim('.', ' ')
+                val pairNum = romanToArabic[firstCell]
+
+                if (pairNum != null) {
+                    val pairIndex = pairNum - 1 
+                    for (c in 0 until row.lastCellNum) {
+                        if (!colToDayIndex.containsKey(c)) continue
+                        val text = getCellText(row.getCell(c)).trim()
+                        if (text.isEmpty()) continue
+                        if (roomRegex.matcher(text).matches()) continue 
+                        
+                        val dayIdx = colToDayIndex[c] ?: continue
+                        val nextCellText = getCellText(row.getCell(c+1)).trim()
+                        val roomText = if (roomRegex.matcher(nextCellText).find() || nextCellText.lowercase().contains("лаб")) nextCellText else ""
+                        val lesson = parseLessonString(text, roomText)
+                        
+                        if (dayIdx < currentGroup.days.size) {
+                             val daySchedule = currentGroup.days[dayIdx]
+                             val lessons = daySchedule.lessons!!
+                             while (lessons.size <= pairIndex) lessons.add(null)
+                             if (pairIndex >= 0 && pairIndex < 10) lessons[pairIndex] = lesson
+                        }
+                    }
+                }
+            }
+            r++
+        }
+    }
+
+    private fun getDayIndex(text: String): Int {
+        return when {
+            text.contains("понедельник") -> 0
+            text.contains("вторник") -> 1
+            text.contains("среда") -> 2
+            text.contains("четверг") -> 3
+            text.contains("пятница") -> 4
+            text.contains("суббота") -> 5
+            text.contains("воскресенье") -> 6
+            else -> -1
+        }
+    }
+
+    private fun parseRussianDate(text: String): String? {
+        val matcher = dateRegex.matcher(text)
+        if (matcher.find()) {
+            val day = matcher.group(1).padStart(2, '0')
+            val monthName = matcher.group(2).lowercase()
+            val year = matcher.group(3)
+            val month = monthMap[monthName] ?: return null
+            return "$year-$month-$day"
+        }
+        return null
     }
 
     private fun getCellText(cell: Cell?): String {
@@ -140,14 +221,20 @@ class XlsParserService {
         return when (cell.cellType) {
             CellType.STRING -> cell.stringCellValue
             CellType.NUMERIC -> {
-                // Check if it's really an integer
-                if (cell.numericCellValue % 1 == 0.0) {
+                if (DateUtil.isCellDateFormatted(cell)) {
+                    cell.localDateTimeCellValue.toString()
+                } else if (cell.numericCellValue % 1 == 0.0) {
                     cell.numericCellValue.toInt().toString()
                 } else {
                     cell.numericCellValue.toString()
                 }
             }
             CellType.BOOLEAN -> cell.booleanCellValue.toString()
+            CellType.FORMULA -> {
+                try { cell.stringCellValue } catch (e: Exception) { 
+                   try { cell.numericCellValue.toString() } catch(e: Exception) { "" }
+                }
+            }
             else -> ""
         }
     }
@@ -157,14 +244,12 @@ class XlsParserService {
         var type = ""
         val teacherList = ArrayList<String>()
 
-        // Extract Type
         val typeMatcher = typeRegex.matcher(processingSubj)
         if (typeMatcher.find()) {
             type = cleanType(typeMatcher.group(1))
             processingSubj = processingSubj.replace(typeMatcher.group(0), "", ignoreCase = true)
         }
 
-        // Extract Teacher
         val teacherMatcher = teacherRegex.matcher(processingSubj)
         if (teacherMatcher.find()) {
             val teachersStr = teacherMatcher.group(1)
@@ -191,13 +276,11 @@ class XlsParserService {
         while (matcher.find()) {
             rooms.add(matcher.group())
         }
-        
         val lower = text.lowercase()
         if (lower.contains("физ")) rooms.add("лабФИЗ")
         if (lower.contains("хим")) rooms.add("лабХИМ")
         if (lower.contains("гео")) rooms.add("лабГЕО")
         if (lower.contains("стд")) rooms.add("стд")
-
         return rooms.map { it.removeSuffix(".0") }.distinct()
     }
 

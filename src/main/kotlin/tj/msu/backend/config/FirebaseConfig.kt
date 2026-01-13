@@ -38,4 +38,9 @@ class FirebaseConfig {
     fun firebaseDatabase(firebaseApp: FirebaseApp): FirebaseDatabase {
         return FirebaseDatabase.getInstance(firebaseApp)
     }
+
+    @Bean
+    fun firestore(firebaseApp: FirebaseApp): com.google.cloud.firestore.Firestore {
+        return com.google.firebase.cloud.FirestoreClient.getFirestore(firebaseApp)
+    }
 }
