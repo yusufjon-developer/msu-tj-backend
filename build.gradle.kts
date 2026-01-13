@@ -29,6 +29,10 @@ dependencies {
 
     // Firebase
     implementation("com.google.firebase:firebase-admin:9.4.3")
+    // Firestore is included in firebase-admin SDK usually, but if we need specific client features:
+    // implementation("com.google.cloud:google-cloud-firestore:3.18.0")
+    // Note: firebase-admin includes Firestore client. We don't strictly need extra dependency if we use Firebase Admin SDK to access Firestore.
+    // Let's verify if we need it. Usually 'firebase-admin' is enough for backend.
     implementation("org.springframework.boot:spring-boot-starter-actuator")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")

@@ -44,8 +44,9 @@ class ScheduleProcessingService {
                 for (group in groups.values) {
                     if (i < group.days.size) {
                         val daySched = group.days[i]
-                        if (j < daySched.lessons.size) {
-                            val lesson = daySched.lessons[j]
+                        val lessons = daySched.lessons
+                        if (lessons != null && j < lessons.size) {
+                            val lesson = lessons[j]
                             lesson?.rooms?.forEach { room ->
                                 occupiedSet.add(room)
                             }
@@ -70,7 +71,7 @@ class ScheduleProcessingService {
 
         groups.values.forEach { group ->
             group.days.forEachIndexed { dayIdx, day ->
-                day.lessons.forEachIndexed { lessonIdx, lesson ->
+                day.lessons?.forEachIndexed { lessonIdx, lesson ->
                     if (lesson != null) {
                         lesson.teacher.forEach { rawName ->
                             processTeacherName(rawName, teachersMap, group, lesson, dayIdx, lessonIdx)
@@ -80,7 +81,7 @@ class ScheduleProcessingService {
             }
         }
 
-        // Validate teacher keys (forbidden chars)
+
         // forbiddenChars := ".$#[]/"
         val forbiddenChars = "$.#[]/"
         return teachersMap.filter { (name, _) ->
@@ -112,7 +113,7 @@ class ScheduleProcessingService {
                 }
             }
         } else {
-            // Fallback cleaning
+
             val junkWords = listOf(
                 "английский", "немецкий", "китайский", "французский",
                 "язык", "группа", "подгруппа", "физ", "пр.", "лк.", "[пз]", "(", ")"
@@ -149,12 +150,23 @@ class ScheduleProcessingService {
              )
         }
 
-        val existingLesson = schedule.days[dayIdx].lessons[lessonIdx]
+
+        if (schedule.days[dayIdx].lessons == null) {
+            schedule.days[dayIdx].lessons = MutableList(7) { null } // Max pairs? Usually 5-7
+        }
+        val lessons = schedule.days[dayIdx].lessons!!
+        
+
+        while (lessons.size <= lessonIdx) {
+            lessons.add(null)
+        }
+
+        val existingLesson = lessons[lessonIdx]
         
         if (existingLesson != null) {
             val alreadyAdded = existingLesson.teacher.contains(group.title)
             if (!alreadyAdded) {
-                // Return new list with added group
+
                 existingLesson.teacher = existingLesson.teacher + group.title
             }
         } else {
@@ -164,7 +176,7 @@ class ScheduleProcessingService {
                 rooms = lesson.rooms,
                 teacher = listOf(group.title) // In teacher schedule, 'teacher' field holds group names
             )
-            schedule.days[dayIdx].lessons[lessonIdx] = newLesson
+            lessons[lessonIdx] = newLesson
         }
     }
 

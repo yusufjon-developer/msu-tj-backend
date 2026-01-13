@@ -10,8 +10,8 @@ data class Lesson(
 data class DaySchedule(
     var day: String = "",
     var date: String? = null,
-    // 5 pairs per day, nullable if empty
-    var lessons: MutableList<Lesson?> = MutableList(5) { null }
+    // 5 pairs per day, nullable list if day is free, nullable items if slot is free
+    var lessons: MutableList<Lesson?>? = null
 )
 
 data class GroupSchedule(
