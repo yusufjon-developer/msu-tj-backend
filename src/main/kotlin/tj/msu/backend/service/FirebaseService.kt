@@ -99,7 +99,11 @@ class FirebaseService(
             val f5 = setAsync("app_info", appInfo)
 
 
-        archiveWeeklySchedule(groups)
+        if (detectedWeek != null) {
+            archiveWeeklySchedule(groups, detectedWeek)
+        } else {
+            logger.warn("Skipping archiving: No academic week detected.")
+        }
         
         val allFutures = mutableListOf(f1, f2, f3, f4, f5)
         if (fClear != null) allFutures.add(fClear)
@@ -113,26 +117,37 @@ class FirebaseService(
         }
     }
 
-    private fun archiveWeeklySchedule(groups: Map<String, GroupSchedule>) {
+    private fun archiveWeeklySchedule(groups: Map<String, GroupSchedule>, weekNumber: Int) {
         try {
             val now = LocalDateTime.now()
-            val weekFields = WeekFields.of(Locale.getDefault())
-            val weekNum = now.get(weekFields.weekOfWeekBasedYear())
-            val year = now.year
             
-
-            val docId = String.format("%d-W%02d", year, weekNum)
+            val currentYear = now.year
+            val currentMonth = now.monthValue
+            
+            // Academic Year: If >= Sept, Year-Year+1. Else Year-1-Year
+            val academicYear = if (currentMonth >= 9) {
+                "$currentYear-${currentYear + 1}"
+            } else {
+                "${currentYear - 1}-$currentYear"
+            }
+            
+            val docId = weekNumber.toString()
             
             val archiveData = mapOf(
                 "created_at" to now.toString(),
-                "year" to year,
-                "week" to weekNum,
+                "academic_year" to academicYear,
+                "academic_week" to weekNumber,
                 "data" to groups
             )
             
-
-            firestore.collection("schedules_history").document(docId).set(archiveData)
-            logger.info("Archived schedule to Firestore: {}", docId)
+            // Structure: academic_years -> {Year} -> weeks -> {WeekNum}
+            firestore.collection("academic_years")
+                .document(academicYear)
+                .collection("weeks")
+                .document(docId)
+                .set(archiveData)
+                
+            logger.info("Archived schedule to Firestore: Year={}, Week={}", academicYear, docId)
         } catch (e: Exception) {
             logger.error("Failed to archive schedule: {}", e.message)
         }
