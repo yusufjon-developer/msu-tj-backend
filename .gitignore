@@ -1,2 +1,2 @@
-*.iml
-serviceAccountKey.json
+/serviceAccountKey.json
+/app.log
