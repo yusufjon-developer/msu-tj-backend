@@ -1,23 +1,16 @@
-ARG GO_VERSION=1
-FROM golang:${GO_VERSION}-bookworm as builder
-
-WORKDIR /usr/src/app
-
-COPY go.mod go.sum ./
-RUN go mod download && go mod verify
-
-COPY . .
-
-RUN go build -v -o /run-app ./cmd/app
-
-FROM debian:bookworm
-
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
+FROM eclipse-temurin:17-jdk-jammy AS builder
 WORKDIR /app
+COPY . .
+# Ensure gradlew has execution permissions
+RUN chmod +x ./gradlew
+RUN ./gradlew bootJar
 
-COPY --from=builder /run-app /app/server
-
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+# Copy the built jar from the builder stage
+COPY --from=builder /app/build/libs/*.jar app.jar
+# Copy the service account key (required for Firebase)
 COPY serviceAccountKey.json /app/serviceAccountKey.json
 
-CMD ["/app/server"]
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
