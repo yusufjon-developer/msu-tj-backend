@@ -18,27 +18,34 @@ class ScheduleWorker(
     private val pollingService: PollingService,
     private val xlsParserService: XlsParserService,
     private val processingService: ScheduleProcessingService,
-    private val firebaseService: FirebaseService
+    private val firebaseService: FirebaseService,
+    private val notificationService: tj.msu.backend.service.NotificationService
 ) {
     private val logger = LoggerFactory.getLogger(ScheduleWorker::class.java)
     
 
     private val lastModifiedMap = ConcurrentHashMap<String, String>()
+    
+    private var oldGlobalData: Map<String, tj.msu.backend.model.GroupSchedule> = emptyMap()
+    private var isNextWeekPublished = false
 
     @EventListener(ApplicationReadyEvent::class)
     fun onStartup() {
-        logger.info("Application ready. Triggering initial poll...")
+        logger.info("Application ready. Fetching initial state...")
+        oldGlobalData = firebaseService.fetchCurrentSchedule()
+        val nextSched = firebaseService.fetchNextSchedule()
+        isNextWeekPublished = nextSched.isNotEmpty()
+        
+        logger.info("State initialized. Current Groups: {}, Next Week published: {}", oldGlobalData.size, isNextWeekPublished)
+        
         processUrls()
     }
 
-    // Dushanbe Time Zone is UTC+5. 
-    // Cron expression format: second, minute, hour, day of month, month, day of week
+
     
 
     @Scheduled(cron = "0/15 * 6-18 * * *", zone = "Asia/Dushanbe")
     fun pollActiveHours() {
-        // poll() // Commented out for now until functionality is fully verified, or we can run it.
-        // For development, let's log.
         logger.debug("Active hours poll triggered")
         processUrls()
     }
@@ -50,6 +57,7 @@ class ScheduleWorker(
         processUrls()
     }
 
+    @Synchronized
     private fun processUrls() {
         var needUpdate = false
         
@@ -85,11 +93,58 @@ class ScheduleWorker(
 
                     val freeRooms = processingService.calculateFreeRooms(globalData)
                     val teachers = processingService.extractTeachers(globalData)
+                    val isNextWeek = processingService.isNextWeek(result.dates)
                     
-                    logger.info("Extracted {} teachers. Detected Week: {}. Dates found: {}", teachers.size, result.weekNumber, result.dates.size)
-
+                    logger.info("Extracted {} teachers. Detected Week: {}. NextWeek={}", teachers.size, result.weekNumber, isNextWeek)
 
                     firebaseService.saveFullUpdate(globalData, freeRooms, teachers, result.weekNumber, result.dates)
+                    
+                    if (isNextWeek) {
+                        if (!isNextWeekPublished) {
+                            logger.info("New week schedule detected for the first time. Sending global notification.")
+                            notificationService.sendToTopic(
+                                "global", 
+                                "Расписание на новую неделю", 
+                                "Расписание на следующую неделю опубликовано. Спланируйте свое время заранее!"
+                            )
+                            isNextWeekPublished = true
+                        }
+                    } else {
+                        // Current Week Update
+                        if (isNextWeekPublished) {
+                            isNextWeekPublished = false
+                        }
+                        
+                        // Compare with DB state (loaded into oldGlobalData on startup)
+                        if (oldGlobalData.isNotEmpty()) {
+                             val diffs = processingService.findDifferences(oldGlobalData, globalData)
+                             if (diffs.isNotEmpty()) {
+                                 logger.info("Detected schedule changes (vs Database/Previous) in {} groups: {}", diffs.size, diffs)
+                                 diffs.forEach { groupId ->
+                                     notificationService.sendToTopic(
+                                         groupId,
+                                         "Обновление расписания",
+                                         "В расписание вашей группы были внесены изменения. Пожалуйста, проверьте актуальное расписание."
+                                     )
+                                 }
+                             } else {
+                                 logger.info("No differences found between Schedule and Database state.")
+                             }
+                        } else {
+                             logger.info("Database state was empty on startup. Skipping change notifications for initial sync.")
+                        }
+
+                        oldGlobalData = globalData
+                    }
+                    
+
+                    if (result.dates.isNotEmpty()) {
+                        val exams = processingService.extractExams(globalData, result.dates)
+                        if (exams.isNotEmpty()) {
+                            firebaseService.saveExams(exams)
+                        }
+                    }
+
                 } else {
                     logger.warn("No valid data received, skipping database update.")
                 }

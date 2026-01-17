@@ -43,4 +43,9 @@ class FirebaseConfig {
     fun firestore(firebaseApp: FirebaseApp): com.google.cloud.firestore.Firestore {
         return com.google.firebase.cloud.FirestoreClient.getFirestore(firebaseApp)
     }
+
+    @Bean
+    fun firebaseMessaging(firebaseApp: FirebaseApp): com.google.firebase.messaging.FirebaseMessaging {
+        return com.google.firebase.messaging.FirebaseMessaging.getInstance(firebaseApp)
+    }
 }

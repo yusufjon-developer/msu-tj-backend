@@ -42,9 +42,7 @@ class FirebaseService(
                 if (minDateStr != null) {
                     val minDate = java.time.LocalDate.parse(minDateStr) // Format YYYY-MM-DD
                     
-                    // Logic: If minDate is AFTER the upcoming Sunday? 
-                    // Or if minDate indicates a week start that is > current week start.
-                    // Let's use Week-of-Year comparison for simplicity using ISO fields
+
                     val fileWeek = minDate.get(WeekFields.ISO.weekOfWeekBasedYear())
                     val currentWeek = now.get(WeekFields.ISO.weekOfWeekBasedYear())
                     
@@ -70,15 +68,12 @@ class FirebaseService(
             val f3 = setAsync("teachers$targetSuffix", teachers)
             
             // CRITICAL USER REQ: "if week and current data are identical ... leave next empty"
-            // This implies: If we are updating "Current" (isNextWeek=false), we should INVALIDATE "Next".
-            // Why? Because if we moved from Week 20 to 21, Week 21 becomes Current. The "Next" (Week 22) might not exist yet.
             // So if target is Current, clear Next.
             var fClear: CompletableFuture<Void>? = null
             if (!isNextWeek) {
 
 
-                val clearMap = null // Setting value to null deletes it in Firebase? Yes.
-                // Wait, setValue(null) deletes.
+                val clearMap = null
                 fClear = CompletableFuture.allOf(
                     setAsync("schedules_next", null),
                     setAsync("free_rooms_next", null),
@@ -150,6 +145,75 @@ class FirebaseService(
             logger.info("Archived schedule to Firestore: Year={}, Week={}", academicYear, docId)
         } catch (e: Exception) {
             logger.error("Failed to archive schedule: {}", e.message)
+        }
+    }
+
+    fun fetchCurrentSchedule(): Map<String, GroupSchedule> {
+        val future = CompletableFuture<Map<String, GroupSchedule>>()
+        firebaseDatabase.getReference("schedules").addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                val t = object : com.google.firebase.database.GenericTypeIndicator<Map<String, GroupSchedule>>() {}
+                val data = snapshot.getValue(t) ?: emptyMap()
+                future.complete(data)
+            }
+
+            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                logger.error("Failed to fetch current schedule: {}", error.message)
+                future.complete(emptyMap())
+            }
+        })
+        return try {
+            future.join()
+        } catch (e: Exception) {
+            logger.error("Error waiting for schedule fetch: {}", e.message)
+            emptyMap()
+        }
+    }
+
+    fun fetchNextSchedule(): Map<String, GroupSchedule> {
+        val future = CompletableFuture<Map<String, GroupSchedule>>()
+        firebaseDatabase.getReference("schedules_next").addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                val t = object : com.google.firebase.database.GenericTypeIndicator<Map<String, GroupSchedule>>() {}
+                val data = snapshot.getValue(t) ?: emptyMap()
+                future.complete(data)
+            }
+
+            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                logger.error("Failed to fetch next schedule: {}", error.message)
+                future.complete(emptyMap())
+            }
+        })
+        return try {
+            future.join()
+        } catch (e: Exception) {
+            logger.error("Error waiting for next schedule fetch: {}", e.message)
+            emptyMap()
+        }
+    }
+
+    fun saveExams(exams: List<tj.msu.backend.model.ExamEvent>) {
+        if (exams.isEmpty()) return
+        
+        try {
+
+            val batch = firestore.batch()
+            var count = 0
+            exams.forEach { exam ->
+                 // Collection: scheduled_exams
+                 // Doc ID: exam.id (groupId_date_lessonIdx)
+                 val docRef = firestore.collection("scheduled_exams").document(exam.id)
+                 batch.set(docRef, exam)
+                 count++
+                 if (count >= 450) {
+                     batch.commit().get()
+                     count = 0
+                 }
+            }
+            if (count > 0) batch.commit().get()
+            logger.info("Saved {} exams to Firestore", exams.size)
+        } catch (e: Exception) {
+            logger.error("Failed to save exams: {}", e.message)
         }
     }
 

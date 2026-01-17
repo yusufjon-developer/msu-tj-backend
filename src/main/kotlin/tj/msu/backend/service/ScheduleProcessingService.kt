@@ -9,8 +9,6 @@ import java.util.regex.Pattern
 @Service
 class ScheduleProcessingService {
 
-    // Same regex as in teachers.go
-    // ([А-ЯЁ][а-яё]+[\s\xA0]+[А-ЯЁ]\.[\s\xA0]*[А-ЯЁ]\.?)
     private val teacherNameRegex = Pattern.compile("([А-ЯЁ][а-яё]+[\\s\\xA0]+[А-ЯЁ]\\.[\\s\\xA0]*[А-ЯЁ]\\.?)")
 
     private val allRooms = listOf(
@@ -21,7 +19,7 @@ class ScheduleProcessingService {
         "601", "602", "603",
         "701", "702", "703", "704",
         "801", "802",
-        "лабГЕО", "лабФИЗ", "лабХИМ", "стд" // Note: Go code had лабГЕОЛ, but parser uses лабГЕО. Using parser's version to match.
+        "лабГЕО", "лабФИЗ", "лабХИМ", "стд"
     )
 
     private val dayKeys = listOf("1", "2", "3", "4", "5", "6", "7")
@@ -82,7 +80,6 @@ class ScheduleProcessingService {
         }
 
 
-        // forbiddenChars := ".$#[]/"
         val forbiddenChars = "$.#[]/"
         return teachersMap.filter { (name, _) ->
             name.isNotBlank() && name.none { forbiddenChars.contains(it) || it.code < 32 }
@@ -122,10 +119,8 @@ class ScheduleProcessingService {
             junkWords.forEach { junk ->
                 cleaned = cleaned.replace(junk, "", ignoreCase = true)
             }
-            
-            // Go code had specific "Английский" removal again? 
-            // strings.ReplaceAll(cleanedName, "Английский", "") was inside loop for "английский" junk.
-            // Kotlin's replace(ignoreCase=true) covers it.
+
+
 
             val safeName = sanitizeName(cleaned)
             if (safeName.trim() != "Иностранный" && safeName.length >= 3) {
@@ -155,14 +150,14 @@ class ScheduleProcessingService {
             schedule.days[dayIdx].lessons = MutableList(7) { null } // Max pairs? Usually 5-7
         }
         val lessons = schedule.days[dayIdx].lessons!!
-        
+
 
         while (lessons.size <= lessonIdx) {
             lessons.add(null)
         }
 
         val existingLesson = lessons[lessonIdx]
-        
+
         if (existingLesson != null) {
             val alreadyAdded = existingLesson.teacher.contains(group.title)
             if (!alreadyAdded) {
@@ -183,21 +178,7 @@ class ScheduleProcessingService {
     private fun sanitizeName(name: String): String {
         var str = name.replace("\u0000", "").trim()
         val idx = str.indexOf("(")
-        if (idx != -1) {
-            // Go code: if idx != -1 { } empty block?? 
-            // See: name = strings.TrimSpace(name); if idx := strings.Index(name, "("); idx != -1 {} 
-            // It seems the Go code did NOTHING with the index? 
-            // "if idx := strings.Index(name, "("); idx != -1 {}" -> This loop body is empty in the file view I got. 
-            // Step 137 lines 150-151.
-            // Ah, looks like a bug or incomplete logic in legacy code? Or maybe I misread.
-            // "if idx := strings.Index(name, "("); idx != -1 {}" 
-            // Wait, looking at line 150: "if idx := strings.Index(name, "("); idx != -1 {"
-            // Line 151: "}"
-            // It really does nothing. I will faithfully REPLICATE the "doing nothing" or assumes it was intended to trim?
-            // Actually, usually you cut off after (. 
-            // But if legacy code does nothing, I should do nothing to maintain behavior parity unless it's obviously broken.
-            // I'll skip "cutting off string" logic since Go code had empty block.
-        }
+
 
         str = str.replace(".", "_")
             .replace("/", "-")
@@ -209,7 +190,87 @@ class ScheduleProcessingService {
             .replace("\r", "")
             .replace("\t", "")
             .trim(':',' ', ',')
-            
+
         return str
+    }
+
+
+    fun findDifferences(oldGroups: Map<String, GroupSchedule>, newGroups: Map<String, GroupSchedule>): Set<String> {
+        val changedGroups = HashSet<String>()
+        newGroups.forEach { (name, newGroup) ->
+            val oldGroup = oldGroups[name]
+            if (oldGroup != null && !areLessonsEqual(oldGroup, newGroup)) {
+                changedGroups.add(name)
+            }
+        }
+        return changedGroups
+    }
+
+    private fun areLessonsEqual(g1: GroupSchedule, g2: GroupSchedule): Boolean {
+        if (g1.days.size != g2.days.size) return false
+        return g1.days.zip(g2.days).all { (d1, d2) ->
+            d1.lessons == d2.lessons
+        }
+    }
+
+    fun extractExams(groups: Map<String, GroupSchedule>, detectedDates: List<String>): List<ExamEvent> {
+        val exams = ArrayList<ExamEvent>()
+
+        groups.forEach { (groupId, group) ->
+            val parts = groupId.split("_")
+            if (parts.size >= 2) {
+                val faculty = parts[0]
+                val course = parts[1].toIntOrNull() ?: 0
+
+                group.days.forEachIndexed { dayIdx, day ->
+                    val date = if (dayIdx < detectedDates.size) detectedDates[dayIdx] else ""
+                    if (date.isNotBlank()) {
+                        day.lessons?.forEachIndexed { lessonIdx, lesson ->
+                            if (lesson != null && isExamOrTest(lesson.type)) {
+                                exams.add(ExamEvent(
+                                    id = "${groupId}_${date}_${lessonIdx}",
+                                    group = group.title,
+                                    subject = lesson.subject,
+                                    type = lesson.type,
+                                    date = date,
+                                    time = getPairStartTime(lessonIdx),
+                                    room = lesson.rooms.joinToString(", "),
+                                    faculty = faculty,
+                                    course = course
+                                ))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return exams
+    }
+
+    private fun isExamOrTest(type: String): Boolean {
+        val t = type.lowercase()
+        return t.contains("экзамен") || t.contains("зачет")
+    }
+
+    private fun getPairStartTime(index: Int): String {
+        return when(index) {
+            0 -> "08:00"
+            1 -> "09:35"
+            2 -> "11:10"
+            3 -> "13:00"
+            4 -> "14:35" // Approx
+            else -> "??:??"
+        }
+    }
+
+    fun isNextWeek(detectedDates: List<String>): Boolean {
+        if (detectedDates.isEmpty()) return false
+        val now = java.time.LocalDate.now()
+        val minDateStr = detectedDates.minOrNull() ?: return false
+        val minDate = java.time.LocalDate.parse(minDateStr)
+        val fileWeek = minDate.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
+        val currentWeek = now.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
+
+        return fileWeek > currentWeek || (fileWeek < 5 && currentWeek > 50)
     }
 }
