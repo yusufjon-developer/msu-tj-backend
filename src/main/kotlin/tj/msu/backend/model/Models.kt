@@ -33,3 +33,15 @@ data class FreeRoomsData(
     var schedule: Map<String, Map<String, List<String>>> = emptyMap(),
     var lastUpdate: String = ""
 )
+
+data class ExamEvent(
+    val id: String = "", // Unique ID (e.g. group_date_pair)
+    val group: String = "",
+    val subject: String = "",
+    val type: String = "",
+    val date: String = "", // YYYY-MM-DD
+    val time: String = "", // HH:mm
+    val room: String = "",
+    val faculty: String = "",
+    val course: Int = 0
+)
