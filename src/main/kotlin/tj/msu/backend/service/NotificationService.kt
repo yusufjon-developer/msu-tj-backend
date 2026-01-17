@@ -67,7 +67,7 @@ class NotificationService(
             try {
                 // Find users
                 val querySnapshot = firestore.collection("users")
-                    .whereEqualTo("faculty_code", facultyCode)
+                    .whereEqualTo("facultyCode", facultyCode)
                     .whereEqualTo("course", course)
                     .get()
                     .get() 

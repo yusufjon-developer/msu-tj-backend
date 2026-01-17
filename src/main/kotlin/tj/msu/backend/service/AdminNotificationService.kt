@@ -84,7 +84,7 @@ class AdminNotificationService(
                     // targetValue = "pmi_1"
                     val parts = targetValue?.split("_")
                     if (parts != null && parts.size == 2) {
-                        usersRef.whereEqualTo("faculty_code", parts[0])
+                        usersRef.whereEqualTo("facultyCode", parts[0])
                                 .whereEqualTo("course", parts[1].toIntOrNull() ?: 0)
                     } else {
                         return emptyList()

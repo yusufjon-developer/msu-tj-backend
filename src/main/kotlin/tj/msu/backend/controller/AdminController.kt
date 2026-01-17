@@ -77,7 +77,7 @@ class AdminController(
                 uid = doc.id,
                 email = doc.getString("email") ?: "",
                 name = doc.getString("name") ?: "Без имени",
-                facultyCode = doc.getString("faculty_code") ?: "",
+                facultyCode = doc.getString("facultyCode") ?: "",
                 course = doc.getLong("course")?.toInt() ?: 0,
                 role = doc.getString("role") ?: "student"
             )
