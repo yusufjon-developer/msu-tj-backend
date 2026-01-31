@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "tj.msu"
-version = "0.0.1-SNAPSHOT"
+version = "1.0.0"
 
 java {
     toolchain {
@@ -23,16 +23,11 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     
-    // Parsing
     implementation("org.apache.poi:poi:5.3.0")
     implementation("org.apache.poi:poi-ooxml:5.3.0")
 
-    // Firebase
     implementation("com.google.firebase:firebase-admin:9.4.3")
-    // Firestore is included in firebase-admin SDK usually, but if we need specific client features:
-    // implementation("com.google.cloud:google-cloud-firestore:3.18.0")
-    // Note: firebase-admin includes Firestore client. We don't strictly need extra dependency if we use Firebase Admin SDK to access Firestore.
-    // Let's verify if we need it. Usually 'firebase-admin' is enough for backend.
+
     implementation("org.springframework.boot:spring-boot-starter-actuator")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")

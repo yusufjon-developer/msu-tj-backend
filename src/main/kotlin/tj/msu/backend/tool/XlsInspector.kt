@@ -25,7 +25,7 @@ class XlsInspector : CommandLineRunner {
                         for (c in 0..15) {
                             val cell = row.getCell(c)
                             if (cell != null) {
-                                rowValues.append("[${cell.toString()}] ")
+                                rowValues.append("[$cell] ")
                             }
                         }
                         if (rowValues.isNotEmpty()) {
